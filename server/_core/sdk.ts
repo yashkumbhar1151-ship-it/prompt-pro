@@ -167,11 +167,16 @@ class SDKServer {
     openId: string,
     options: { expiresInMs?: number; name?: string } = {}
   ): Promise<string> {
+    // Never sign a session with an empty name — verifySession() rejects empty
+    // strings via isNonEmptyString(), which would make the cookie that this
+    // token backs fail every subsequent request and bounce the user back to
+    // the login page. Fall back to a stable, non-empty display name.
+    const name = options.name?.trim() || `User ${openId.slice(0, 8)}`;
     return this.signSession(
       {
         openId,
         appId: ENV.appId,
-        name: options.name || "",
+        name,
       },
       options
     );

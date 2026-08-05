@@ -4,14 +4,23 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
-import { Copy, Trash2, History } from "lucide-react";
+import {
+  BrainCircuit,
+  Copy,
+  Download,
+  History,
+  Save,
+  Sparkles,
+  Trash2,
+  Wand2,
+} from "lucide-react";
 import { Streamdown } from "streamdown";
 import { trpc } from "@/lib/trpc";
-import { useState, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 export default function Home() {
-  const { user, isAuthenticated } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [originalPrompt, setOriginalPrompt] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -31,7 +40,23 @@ export default function Home() {
     createdAt: Date;
   } | null>(null);
 
-  const handleAnalyze = async () => {
+  useEffect(() => {
+    const savedDraft = window.localStorage.getItem("promptpro-draft");
+    if (savedDraft) {
+      setOriginalPrompt(savedDraft);
+    }
+  }, []);
+
+  const promptStats = useMemo(() => {
+    const characterCount = originalPrompt.length;
+    const estimatedTokens = Math.max(40, Math.round(characterCount / 4));
+    return {
+      characterCount,
+      estimatedTokens,
+    };
+  }, [originalPrompt]);
+
+  const handleAnalyze = async (mode: "analyze" | "optimize" | "generate" = "analyze") => {
     if (!originalPrompt.trim()) {
       toast.error("Please enter a prompt to analyze");
       return;
@@ -44,7 +69,15 @@ export default function Home() {
       });
       setCurrentAnalysis(result);
       setSelectedHistoryId(null);
-      toast.success("Prompt analyzed successfully!");
+
+      let successMessage = "Prompt analyzed successfully!";
+      if (mode === "optimize") {
+        successMessage = "Prompt optimization complete";
+      } else if (mode === "generate") {
+        successMessage = "Generated a refined prompt version";
+      }
+
+      toast.success(successMessage);
     } catch (error) {
       toast.error("Failed to analyze prompt. Please try again.");
       console.error(error);
@@ -53,11 +86,60 @@ export default function Home() {
     }
   };
 
-  const handleCopyEnhanced = () => {
+  const handleSaveDraft = () => {
+    if (!originalPrompt.trim()) {
+      toast.error("Nothing to save yet.");
+      return;
+    }
+
+    window.localStorage.setItem("promptpro-draft", originalPrompt);
+    toast.success("Prompt draft saved locally.");
+  };
+
+  const handleCopyEnhanced = async () => {
     if (currentAnalysis?.enhanced) {
-      navigator.clipboard.writeText(currentAnalysis.enhanced);
+      await navigator.clipboard.writeText(currentAnalysis.enhanced);
       toast.success("Enhanced prompt copied to clipboard!");
     }
+  };
+
+  const handleExportJSON = () => {
+    if (!currentAnalysis) {
+      toast.error("Analyze a prompt before exporting.");
+      return;
+    }
+
+    const payload = {
+      originalPrompt,
+      review: currentAnalysis.review,
+      enhanced: currentAnalysis.enhanced,
+      createdAt: currentAnalysis.createdAt.toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "promptpro-analysis.json";
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success("JSON export downloaded.");
+  };
+
+  const handleExportMarkdown = () => {
+    if (!currentAnalysis) {
+      toast.error("Analyze a prompt before exporting.");
+      return;
+    }
+
+    const markdown = `# PromptPro Analysis\n\n## Original Prompt\n${originalPrompt}\n\n## Analysis Review\n${currentAnalysis.review}\n\n## Enhanced Prompt\n${currentAnalysis.enhanced}`;
+    const blob = new Blob([markdown], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "promptpro-analysis.md";
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success("Markdown export downloaded.");
   };
 
   const handleSelectHistory = (item: any) => {
@@ -67,35 +149,33 @@ export default function Home() {
       enhanced: item.enhanced,
       createdAt: new Date(item.createdAt),
     });
+    setOriginalPrompt(item.originalPrompt);
     setSelectedHistoryId(item.id);
   };
 
   const handleDeleteHistory = async (id: number) => {
     try {
       await deletePromptMutation.mutateAsync({ id });
-      if (historyQuery.data) {
-        const newData = historyQuery.data.filter((item) => item.id !== id);
-        historyQuery.refetch();
-      }
+      await historyQuery.refetch();
       if (selectedHistoryId === id) {
         setCurrentAnalysis(null);
         setSelectedHistoryId(null);
       }
       toast.success("Prompt deleted from history");
-    } catch (error) {
+    } catch {
       toast.error("Failed to delete prompt");
     }
   };
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4">
-        <Card className="w-full max-w-md p-8 text-center border-2 border-accent">
-          <h1 className="text-4xl font-bold text-foreground mb-4">PromptPro</h1>
-          <p className="text-lg text-muted-foreground mb-6">
+      <div className="flex min-h-screen items-center justify-center px-4">
+        <Card className="w-full max-w-md border-2 border-accent p-8 text-center">
+          <h1 className="mb-4 text-4xl font-bold text-foreground">PromptPro</h1>
+          <p className="mb-6 text-lg text-muted-foreground">
             AI-Powered Prompt Engineering Assistant
           </p>
-          <p className="text-sm text-muted-foreground mb-8">
+          <p className="mb-8 text-sm text-muted-foreground">
             Analyze and optimize your prompts for better LLM performance
           </p>
           <Button
@@ -111,79 +191,104 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-background py-8 px-4">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-5xl font-black text-foreground mb-2">PromptPro</h1>
+    <div className="min-h-screen bg-background px-4 py-8">
+      <div className="mx-auto max-w-7xl">
+        <div className="mb-8 flex flex-col gap-2">
+          <h1 className="text-5xl font-black text-foreground">PromptPro</h1>
           <p className="text-lg text-muted-foreground">
             Analyze and optimize your prompts for maximum LLM effectiveness
           </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Main Input and Analysis Area */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Input Card */}
-            <Card className="p-6 border-2 border-border hover:border-accent/50 transition-colors">
-              <h2 className="text-2xl font-bold text-foreground mb-4">Your Prompt</h2>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className="space-y-6 lg:col-span-2">
+            <Card className="border-2 border-border p-6 transition-colors hover:border-accent/50">
+              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <h2 className="text-2xl font-bold text-foreground">Prompt Editor</h2>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span>{promptStats.characterCount} characters</span>
+                  <span>•</span>
+                  <span>{promptStats.estimatedTokens} estimated tokens</span>
+                </div>
+              </div>
+
               <Textarea
                 ref={textareaRef}
                 value={originalPrompt}
-                onChange={(e) => setOriginalPrompt(e.target.value)}
+                onChange={(event) => {
+                  setOriginalPrompt(event.target.value);
+                  window.localStorage.setItem("promptpro-draft", event.target.value);
+                }}
                 placeholder="Paste or type your prompt here..."
-                className="min-h-40 font-mono text-sm border-2 border-border focus:border-accent"
+                className="min-h-48 border-2 border-border font-mono text-sm focus:border-accent"
               />
-              <Button
-                onClick={handleAnalyze}
-                disabled={isAnalyzing || !originalPrompt.trim()}
-                className="mt-4 w-full bg-primary text-primary-foreground hover:bg-primary/90"
-                size="lg"
-              >
-                {isAnalyzing ? (
-                  <>
-                    <Spinner className="mr-2 h-4 w-4" />
-                    Analyzing...
-                  </>
-                ) : (
-                  "Analyze & Optimize"
-                )}
-              </Button>
+
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Button
+                  onClick={() => handleAnalyze("analyze")}
+                  disabled={isAnalyzing || !originalPrompt.trim()}
+                  className="bg-primary text-primary-foreground hover:bg-primary/90"
+                >
+                  {isAnalyzing ? (
+                    <>
+                      <Spinner className="mr-2 h-4 w-4" />
+                      Analyzing...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="mr-2 h-4 w-4" />
+                      Analyze
+                    </>
+                  )}
+                </Button>
+                <Button variant="outline" onClick={() => handleAnalyze("optimize")} disabled={!originalPrompt.trim()}>
+                  <Wand2 className="mr-2 h-4 w-4" />
+                  Optimize
+                </Button>
+                <Button variant="outline" onClick={() => handleAnalyze("generate")} disabled={!originalPrompt.trim()}>
+                  <BrainCircuit className="mr-2 h-4 w-4" />
+                  Generate
+                </Button>
+                <Button variant="outline" onClick={handleCopyEnhanced} disabled={!currentAnalysis?.enhanced}>
+                  <Copy className="mr-2 h-4 w-4" />
+                  Copy
+                </Button>
+                <Button variant="outline" onClick={handleSaveDraft}>
+                  <Save className="mr-2 h-4 w-4" />
+                  Save
+                </Button>
+                <Button variant="outline" onClick={handleExportJSON} disabled={!currentAnalysis}>
+                  <Download className="mr-2 h-4 w-4" />
+                  Export JSON
+                </Button>
+                <Button variant="outline" onClick={handleExportMarkdown} disabled={!currentAnalysis}>
+                  <Download className="mr-2 h-4 w-4" />
+                  Export Markdown
+                </Button>
+              </div>
             </Card>
 
-            {/* Analysis Results */}
             {currentAnalysis && (
               <div className="space-y-6">
-                {/* Part 1: Review */}
-                <Card className="p-6 border-2 border-accent/30 bg-secondary/20">
-                  <h3 className="text-2xl font-bold text-foreground mb-4">
-                    Part 1: Analysis Review
-                  </h3>
+                <Card className="border-2 border-accent/30 bg-secondary/20 p-6">
+                  <h3 className="mb-4 text-2xl font-bold text-foreground">Analysis Review</h3>
                   <div className="prose prose-sm max-w-none text-foreground">
                     <Streamdown>{currentAnalysis.review}</Streamdown>
                   </div>
                 </Card>
 
-                {/* Part 2: Enhanced Prompt */}
-                <Card className="p-6 border-2 border-accent/30 bg-accent/5">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-2xl font-bold text-foreground">
-                      Part 2: Enhanced Prompt
-                    </h3>
-                    <Button
-                      onClick={handleCopyEnhanced}
-                      variant="outline"
-                      size="sm"
-                      className="border-accent text-accent hover:bg-accent/10"
-                    >
-                      <Copy className="h-4 w-4 mr-2" />
+                <Card className="border-2 border-accent/30 bg-accent/5 p-6">
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <h3 className="text-2xl font-bold text-foreground">Enhanced Prompt</h3>
+                    <Button onClick={handleCopyEnhanced} variant="outline" size="sm">
+                      <Copy className="mr-2 h-4 w-4" />
                       Copy
                     </Button>
                   </div>
-                  <div className="bg-card border-2 border-border rounded-lg p-4 font-mono text-sm whitespace-pre-wrap break-words text-foreground">
+                  <div className="rounded-lg border-2 border-border bg-card p-4 font-mono text-sm whitespace-pre-wrap break-words text-foreground">
                     {currentAnalysis.enhanced}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-3">
+                  <p className="mt-3 text-xs text-muted-foreground">
                     Analyzed on {currentAnalysis.createdAt.toLocaleDateString()} at{" "}
                     {currentAnalysis.createdAt.toLocaleTimeString()}
                   </p>
@@ -192,20 +297,14 @@ export default function Home() {
             )}
           </div>
 
-          {/* Sidebar: History */}
           <div className="lg:col-span-1">
-            <Card className="p-6 border-2 border-border sticky top-8">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold text-foreground flex items-center">
-                  <History className="h-5 w-5 mr-2 text-accent" />
+            <Card className="sticky top-8 border-2 border-border p-6">
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="flex items-center text-xl font-bold text-foreground">
+                  <History className="mr-2 h-5 w-5 text-accent" />
                   History
                 </h3>
-                <Button
-                  onClick={() => setShowHistory(!showHistory)}
-                  variant="outline"
-                  size="sm"
-                  className="text-xs"
-                >
+                <Button onClick={() => setShowHistory(!showHistory)} variant="outline" size="sm" className="text-xs">
                   {showHistory ? "Hide" : "Show"}
                 </Button>
               </div>
@@ -216,8 +315,10 @@ export default function Home() {
                     <div className="flex justify-center py-4">
                       <Spinner className="h-5 w-5" />
                     </div>
-                  ) : historyQuery.data && historyQuery.data.length > 0 ? (
-                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                  ) : null}
+
+                  {!historyQuery.isLoading && historyQuery.data && historyQuery.data.length > 0 ? (
+                    <div className="max-h-96 space-y-2 overflow-y-auto">
                       {historyQuery.data.map((item) => {
                         const isSelected = selectedHistoryId === item.id;
                         const borderClass = isSelected
@@ -226,40 +327,41 @@ export default function Home() {
                         return (
                           <div
                             key={item.id}
-                            className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${borderClass}`}
+                            className={`rounded-lg border-2 p-3 transition-all ${borderClass}`}
                           >
-                            <div
+                            <button
+                              type="button"
                               onClick={() => handleSelectHistory(item)}
-                              className="mb-2"
+                              className="mb-2 block w-full text-left"
                             >
-                              <p className="text-xs font-mono text-muted-foreground truncate">
+                              <p className="truncate font-mono text-xs text-muted-foreground">
                                 {item.originalPrompt.substring(0, 50)}...
                               </p>
-                              <p className="text-xs text-muted-foreground mt-1">
+                              <p className="mt-1 text-xs text-muted-foreground">
                                 {new Date(item.createdAt).toLocaleDateString()}
                               </p>
-                            </div>
+                            </button>
                             <Button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteHistory(item.id);
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void handleDeleteHistory(item.id);
                               }}
                               variant="ghost"
                               size="sm"
                               className="w-full text-destructive hover:bg-destructive/10"
                             >
-                              <Trash2 className="h-3 w-3 mr-1" />
+                              <Trash2 className="mr-1 h-3 w-3" />
                               Delete
                             </Button>
                           </div>
                         );
                       })}
                     </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground text-center py-4">
-                      No history yet. Start analyzing prompts!
-                    </p>
-                  )}
+                  ) : null}
+
+                  {!historyQuery.isLoading && (!historyQuery.data || historyQuery.data.length === 0) ? (
+                    <p className="py-4 text-center text-sm text-muted-foreground">No history yet. Start analyzing prompts!</p>
+                  ) : null}
                 </div>
               )}
             </Card>

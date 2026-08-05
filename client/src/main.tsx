@@ -6,9 +6,11 @@ import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
 import { startLogin } from "./const";
+import { initAnalytics } from "./lib/analytics";
 import "./index.css";
 
 const queryClient = new QueryClient();
+initAnalytics();
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;
@@ -64,7 +66,7 @@ const trpcClient = trpc.createClient({
       },
       fetch(input, init) {
         return globalThis.fetch(input, {
-          ...(init ?? {}),
+          ...init,
           credentials: "include",
         });
       },
